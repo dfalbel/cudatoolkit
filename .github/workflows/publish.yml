@@ -67,18 +67,23 @@ jobs:
             ${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz \
             ${{ matrix.package }}_${{ matrix.cuda_version }}_R_*.tar.gz
 
-      - name: Download source tarball from existing release
+      - name: Download tarballs from existing release
         if: steps.check.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ matrix.package }}-${{ matrix.cuda_version }}"
-          gh release download "$TAG" --pattern "${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz"
+          gh release download "$TAG" --pattern "${{ matrix.package }}_${{ matrix.cuda_version }}*.tar.gz"
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.package }}-${{ matrix.cuda_version }}-source
           path: "${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}-${{ matrix.cuda_version }}-binary
+          path: "${{ matrix.package }}_${{ matrix.cuda_version }}_R_*.tar.gz"
 
   update-repo-index:
     needs: build
@@ -96,18 +101,31 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate PACKAGES index
+      - name: Generate PACKAGES indices
         run: |
           mkdir -p repo/src/contrib
 
-          # Collect all source tarballs to generate the index
-          find artifacts -name '*.tar.gz' -exec cp {} repo/src/contrib/ \;
-
-          # Generate PACKAGES index
+          # Source index
+          find artifacts -path '*-source/*.tar.gz' -exec cp {} repo/src/contrib/ \;
           Rscript -e 'tools::write_PACKAGES("repo/src/contrib", type = "source")'
-
-          # Remove tarballs - only the index is deployed to gh-pages
           rm repo/src/contrib/*.tar.gz
+
+          # Binary index — serve for multiple R versions since no compiled R code
+          BINARY_DIR=$(mktemp -d)
+          find artifacts -name '*_R_*.tar.gz' -exec cp {} "$BINARY_DIR/" \;
+
+          if ls "$BINARY_DIR"/*.tar.gz 1>/dev/null 2>&1; then
+            # Extract platform from binary tarball name (e.g. x86_64-pc-linux-gnu)
+            PLATFORM=$(ls "$BINARY_DIR"/*.tar.gz | head -1 | grep -oP '_R_\K[^.]+(?=\.tar\.gz)')
+
+            for R_VER in 4.3 4.4 4.5; do
+              BIN_PATH="repo/bin/${PLATFORM}/contrib/${R_VER}"
+              mkdir -p "$BIN_PATH"
+              cp "$BINARY_DIR"/*.tar.gz "$BIN_PATH/"
+              Rscript -e "tools::write_PACKAGES('${BIN_PATH}', type = 'mac.binary')"
+              rm "$BIN_PATH"/*.tar.gz
+            done
+          fi
 
       - uses: actions/upload-pages-artifact@v3
         with:
