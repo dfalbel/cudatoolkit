@@ -67,8 +67,15 @@ jobs:
             ${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz \
             ${{ matrix.package }}_${{ matrix.cuda_version }}_R_*.tar.gz
 
+      - name: Download source tarball from existing release
+        if: steps.check.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ matrix.package }}-${{ matrix.cuda_version }}"
+          gh release download "$TAG" --pattern "${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz"
+
       - uses: actions/upload-artifact@v4
-        if: steps.check.outputs.exists == 'false'
         with:
           name: ${{ matrix.package }}-${{ matrix.cuda_version }}-source
           path: "${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz"
