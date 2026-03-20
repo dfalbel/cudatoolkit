@@ -1,7 +1,7 @@
 // Cloudflare Worker that serves a cranlike R package repository.
 //
 // Platform-specific repos at /{platform}/src/contrib/
-// e.g. /linux/src/contrib/PACKAGES, /windows/src/contrib/cuda.runtime_12.9.79.tar.gz
+// e.g. /linux-x64/src/contrib/PACKAGES, /windows-x64/src/contrib/cuda.runtime_12.9.79.tar.gz
 //
 // - PACKAGES index files are served from GitHub Pages
 // - .tar.gz tarballs are served from GitHub Releases
@@ -9,7 +9,7 @@
 // Release tag convention: {package}-{version}
 // Asset naming: {package}_{version}_{platform}.tar.gz
 
-const VALID_PLATFORMS = ["linux", "windows"];
+const VALID_PLATFORMS = ["linux-x64", "linux-arm64", "windows-x64"];
 
 export default {
   async fetch(request, env) {
@@ -17,7 +17,7 @@ export default {
     const path = url.pathname;
 
     // Parse platform from path: /{platform}/src/contrib/...
-    const platformMatch = path.match(/^\/(linux|windows)\//);
+    const platformMatch = path.match(/^\/(linux-x64|linux-arm64|windows-x64)\//);
     if (!platformMatch) {
       return new Response(
         "Use /{platform}/src/contrib/ where platform is: " + VALID_PLATFORMS.join(", "),

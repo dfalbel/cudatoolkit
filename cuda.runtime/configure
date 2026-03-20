@@ -11,12 +11,14 @@ CUDA_MAJOR=$(echo "$CUDA_VERSION" | cut -d. -f1)
 PACKAGE_NAME="nvidia_cuda_runtime_cu${CUDA_MAJOR}"
 
 # Detect platform and architecture.
-# Can be overridden with CUDA_PLATFORM env var (linux, windows) for CI cross-builds.
+# Can be overridden with CUDA_PLATFORM env var for CI cross-builds.
+# Valid values: linux-x64, linux-arm64, windows-x64
 detect_platform() {
   if [ -n "$CUDA_PLATFORM" ]; then
     case "$CUDA_PLATFORM" in
-      linux)  echo "manylinux2014_x86_64.manylinux_2_17_x86_64" ;;
-      windows) echo "win_amd64" ;;
+      linux-x64)    echo "manylinux2014_x86_64.manylinux_2_17_x86_64" ;;
+      linux-arm64)  echo "manylinux2014_aarch64.manylinux_2_17_aarch64" ;;
+      windows-x64)  echo "win_amd64" ;;
       *)
         echo "ERROR: Unknown CUDA_PLATFORM: $CUDA_PLATFORM" >&2
         exit 1
