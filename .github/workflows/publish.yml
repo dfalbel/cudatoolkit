@@ -45,15 +45,16 @@ jobs:
         run: |
           sed -i "s/^Version:.*/Version: ${{ matrix.cuda_version }}/" ${{ matrix.package }}/DESCRIPTION
 
-      - name: Build source tarball
+      - name: Run configure to download CUDA libs
         if: steps.check.outputs.exists == 'false'
-        run: R CMD build ${{ matrix.package }}
+        working-directory: ${{ matrix.package }}
+        run: ./configure
 
-      - name: Build binary package
+      - name: Remove configure and build fat source tarball
         if: steps.check.outputs.exists == 'false'
         run: |
-          mkdir -p binary
-          R CMD INSTALL --build --library=binary ${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz
+          rm ${{ matrix.package }}/configure
+          R CMD build ${{ matrix.package }}
 
       - name: Create GitHub Release
         if: steps.check.outputs.exists == 'false'
@@ -64,26 +65,20 @@ jobs:
           gh release create "$TAG" \
             --title "${{ matrix.package }} ${{ matrix.cuda_version }}" \
             --notes "CUDA ${{ matrix.cuda_version }} runtime libraries for R." \
-            ${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz \
-            ${{ matrix.package }}_${{ matrix.cuda_version }}_R_*.tar.gz
+            ${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz
 
-      - name: Download tarballs from existing release
+      - name: Download tarball from existing release
         if: steps.check.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ matrix.package }}-${{ matrix.cuda_version }}"
-          gh release download "$TAG" --pattern "${{ matrix.package }}_${{ matrix.cuda_version }}*.tar.gz"
+          gh release download "$TAG" --pattern "${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.package }}-${{ matrix.cuda_version }}-source
+          name: ${{ matrix.package }}-${{ matrix.cuda_version }}
           path: "${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.package }}-${{ matrix.cuda_version }}-binary
-          path: "${{ matrix.package }}_${{ matrix.cuda_version }}_R_*.tar.gz"
 
   update-repo-index:
     needs: build
@@ -101,31 +96,12 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate PACKAGES indices
+      - name: Generate PACKAGES index
         run: |
           mkdir -p repo/src/contrib
-
-          # Source index
-          find artifacts -path '*-source/*.tar.gz' -exec cp {} repo/src/contrib/ \;
+          find artifacts -name '*.tar.gz' -exec cp {} repo/src/contrib/ \;
           Rscript -e 'tools::write_PACKAGES("repo/src/contrib", type = "source")'
           rm repo/src/contrib/*.tar.gz
-
-          # Binary index — serve for multiple R versions since no compiled R code
-          BINARY_DIR=$(mktemp -d)
-          find artifacts -name '*_R_*.tar.gz' -exec cp {} "$BINARY_DIR/" \;
-
-          if ls "$BINARY_DIR"/*.tar.gz 1>/dev/null 2>&1; then
-            # Extract platform from binary tarball name (e.g. x86_64-pc-linux-gnu)
-            PLATFORM=$(ls "$BINARY_DIR"/*.tar.gz | head -1 | grep -oP '_R_\K[^.]+(?=\.tar\.gz)')
-
-            for R_VER in 4.3 4.4 4.5; do
-              BIN_PATH="repo/bin/${PLATFORM}/contrib/${R_VER}"
-              mkdir -p "$BIN_PATH"
-              cp "$BINARY_DIR"/*.tar.gz "$BIN_PATH/"
-              Rscript -e "tools::write_PACKAGES('${BIN_PATH}', type = 'mac.binary')"
-              rm "$BIN_PATH"/*.tar.gz
-            done
-          fi
 
       - uses: actions/upload-pages-artifact@v3
         with:
