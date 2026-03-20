@@ -7,7 +7,8 @@ on:
 
 # Release tag format: {package}-{version}
 # e.g. cuda.runtime-12.9.79
-# Asset URL: /releases/download/cuda.runtime-12.9.79/cuda.runtime_12.9.79.tar.gz
+# Asset naming: {package}_{version}_{platform}.tar.gz
+# Platforms: linux, windows
 
 jobs:
   build:
@@ -22,16 +23,18 @@ jobs:
           - "12.6.77"
           - "12.8.90"
           - "12.9.79"
+        platform: [linux, windows]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check if release already exists
+      - name: Check if release asset already exists
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ matrix.package }}-${{ matrix.cuda_version }}"
-          if gh release view "$TAG" > /dev/null 2>&1; then
+          ASSET="${{ matrix.package }}_${{ matrix.cuda_version }}_${{ matrix.platform }}.tar.gz"
+          if gh release view "$TAG" --json assets --jq ".assets[].name" 2>/dev/null | grep -q "^${ASSET}$"; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -48,6 +51,8 @@ jobs:
       - name: Run configure to download CUDA libs
         if: steps.check.outputs.exists == 'false'
         working-directory: ${{ matrix.package }}
+        env:
+          CUDA_PLATFORM: ${{ matrix.platform }}
         run: ./configure
 
       - name: Remove configure and build fat source tarball
@@ -55,30 +60,37 @@ jobs:
         run: |
           rm ${{ matrix.package }}/configure
           R CMD build ${{ matrix.package }}
+          # Rename with platform suffix
+          mv ${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz \
+             ${{ matrix.package }}_${{ matrix.cuda_version }}_${{ matrix.platform }}.tar.gz
 
-      - name: Create GitHub Release
+      - name: Upload to GitHub Release
         if: steps.check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ matrix.package }}-${{ matrix.cuda_version }}"
+          ASSET="${{ matrix.package }}_${{ matrix.cuda_version }}_${{ matrix.platform }}.tar.gz"
+          # Create release if it doesn't exist yet
           gh release create "$TAG" \
             --title "${{ matrix.package }} ${{ matrix.cuda_version }}" \
             --notes "CUDA ${{ matrix.cuda_version }} runtime libraries for R." \
-            ${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz
+            2>/dev/null || true
+          gh release upload "$TAG" "$ASSET" --clobber
 
-      - name: Download tarball from existing release
+      - name: Download asset from existing release
         if: steps.check.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ matrix.package }}-${{ matrix.cuda_version }}"
-          gh release download "$TAG" --pattern "${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz"
+          ASSET="${{ matrix.package }}_${{ matrix.cuda_version }}_${{ matrix.platform }}.tar.gz"
+          gh release download "$TAG" --pattern "$ASSET"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.package }}-${{ matrix.cuda_version }}
-          path: "${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz"
+          name: ${{ matrix.package }}-${{ matrix.cuda_version }}-${{ matrix.platform }}
+          path: "${{ matrix.package }}_${{ matrix.cuda_version }}_${{ matrix.platform }}.tar.gz"
 
   update-repo-index:
     needs: build
@@ -96,12 +108,21 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate PACKAGES index
+      - name: Generate PACKAGES indices per platform
         run: |
-          mkdir -p repo/src/contrib
-          find artifacts -name '*.tar.gz' -exec cp {} repo/src/contrib/ \;
-          Rscript -e 'tools::write_PACKAGES("repo/src/contrib", type = "source")'
-          rm repo/src/contrib/*.tar.gz
+          for platform in linux windows; do
+            mkdir -p "repo/${platform}/src/contrib"
+
+            # Collect tarballs for this platform, renaming back to standard R name
+            for f in artifacts/*-${platform}/*.tar.gz; do
+              # cuda.runtime_12.9.79_linux.tar.gz -> cuda.runtime_12.9.79.tar.gz
+              basename=$(basename "$f" | sed "s/_${platform}\.tar\.gz/.tar.gz/")
+              cp "$f" "repo/${platform}/src/contrib/${basename}"
+            done
+
+            Rscript -e "tools::write_PACKAGES('repo/${platform}/src/contrib', type = 'source')"
+            rm repo/${platform}/src/contrib/*.tar.gz
+          done
 
       - uses: actions/upload-pages-artifact@v3
         with:
