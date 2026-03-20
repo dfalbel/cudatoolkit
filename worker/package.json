@@ -1,0 +1,5 @@
+{
+  "name": "cudatoolkit-repo",
+  "private": true,
+  "type": "module"
+}
