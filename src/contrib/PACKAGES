@@ -1,0 +1,6 @@
+Package: cuda.runtime
+Version: 12.9.79
+Suggests: testthat (>= 3.0.0)
+License: MIT + file LICENSE
+MD5sum: f62b5b1efc9afaa7088f741b91fc7411
+NeedsCompilation: no
