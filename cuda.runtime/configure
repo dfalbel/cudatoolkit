@@ -1,0 +1,102 @@
+#!/bin/sh
+
+# Downloads CUDA runtime libraries from PyPI during package installation.
+# The wheel is a ZIP file containing shared libs and headers that we extract
+# into inst/ so they are available in the installed package.
+
+# Read version from DESCRIPTION so it's the single source of truth.
+CUDA_VERSION=$(grep "^Version:" DESCRIPTION | sed 's/Version:[[:space:]]*//')
+# Derive the CUDA major version for the PyPI package name (e.g., cu12)
+CUDA_MAJOR=$(echo "$CUDA_VERSION" | cut -d. -f1)
+PACKAGE_NAME="nvidia_cuda_runtime_cu${CUDA_MAJOR}"
+
+# Detect platform and architecture
+detect_platform() {
+  os=$(uname -s)
+  arch=$(uname -m)
+
+  case "$os" in
+    Linux)
+      case "$arch" in
+        x86_64)
+          echo "manylinux2014_x86_64.manylinux_2_17_x86_64"
+          ;;
+        aarch64)
+          echo "manylinux2014_aarch64.manylinux_2_17_aarch64"
+          ;;
+        *)
+          echo "ERROR: Unsupported Linux architecture: $arch" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+      echo "win_amd64"
+      ;;
+    *)
+      echo "ERROR: Unsupported OS: $os" >&2
+      exit 1
+      ;;
+  esac
+}
+
+PLATFORM=$(detect_platform)
+WHEEL_NAME="${PACKAGE_NAME}-${CUDA_VERSION}-py3-none-${PLATFORM}.whl"
+
+# PyPI simple index gives us the actual download URL. We fetch it to find the
+# wheel link rather than guessing the hash-based path.
+PYPI_INDEX_URL="https://pypi.org/simple/${PACKAGE_NAME}/"
+
+echo "* Detecting platform: ${PLATFORM}"
+echo "* Looking for wheel: ${WHEEL_NAME}"
+
+# Create a temporary directory for downloading
+TMPDIR=$(mktemp -d)
+trap "rm -rf '$TMPDIR'" EXIT
+
+# Fetch the wheel URL from PyPI simple index
+echo "* Fetching package index from PyPI..."
+INDEX_FILE="${TMPDIR}/index.html"
+
+if command -v curl > /dev/null 2>&1; then
+  curl -sL -o "$INDEX_FILE" "$PYPI_INDEX_URL"
+elif command -v wget > /dev/null 2>&1; then
+  wget -q -O "$INDEX_FILE" "$PYPI_INDEX_URL"
+else
+  echo "ERROR: Neither curl nor wget found." >&2
+  exit 1
+fi
+
+# Parse the wheel URL from the index page
+WHEEL_URL=$(grep -o 'href="[^"]*'"${WHEEL_NAME}"'[^"]*"' "$INDEX_FILE" | head -1 | sed 's/href="//;s/"//')
+
+if [ -z "$WHEEL_URL" ]; then
+  echo "ERROR: Could not find wheel ${WHEEL_NAME} in PyPI index." >&2
+  exit 1
+fi
+
+# Some URLs from PyPI simple index are relative or have fragments - clean up
+# Remove fragment (#sha256=...)
+WHEEL_URL=$(echo "$WHEEL_URL" | sed 's/#.*//')
+
+echo "* Downloading ${WHEEL_NAME}..."
+WHEEL_PATH="${TMPDIR}/${WHEEL_NAME}"
+
+if command -v curl > /dev/null 2>&1; then
+  curl -sL -o "$WHEEL_PATH" "$WHEEL_URL"
+elif command -v wget > /dev/null 2>&1; then
+  wget -q -O "$WHEEL_PATH" "$WHEEL_URL"
+fi
+
+if [ ! -f "$WHEEL_PATH" ]; then
+  echo "ERROR: Download failed." >&2
+  exit 1
+fi
+
+# Extract the wheel (it's a ZIP file) into inst/
+echo "* Extracting libraries and headers..."
+mkdir -p inst
+unzip -q -o "$WHEEL_PATH" "nvidia/cuda_runtime/lib/*" -d inst/
+unzip -q -o "$WHEEL_PATH" "nvidia/cuda_runtime/include/*" -d inst/
+
+echo "* CUDA runtime ${CUDA_VERSION} installed successfully."

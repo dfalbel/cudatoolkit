@@ -1,0 +1,90 @@
+name: Publish packages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Release tag format: {package}-{version}
+# e.g. cuda.runtime-12.9.79
+# Asset URL: /releases/download/cuda.runtime-12.9.79/cuda.runtime_12.9.79.tar.gz
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [cuda.runtime]
+        cuda_version:
+          - "12.6.77"
+          - "12.8.90"
+          - "12.9.79"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+
+      - name: Set CUDA version in DESCRIPTION
+        run: |
+          sed -i "s/^Version:.*/Version: ${{ matrix.cuda_version }}/" ${{ matrix.package }}/DESCRIPTION
+
+      - name: Build source tarball
+        run: R CMD build ${{ matrix.package }}
+
+      - name: Build binary package
+        run: |
+          mkdir -p binary
+          R CMD INSTALL --build --library=binary ${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ matrix.package }}-${{ matrix.cuda_version }}"
+
+          # Delete existing release if it exists
+          gh release delete "$TAG" --yes 2>/dev/null || true
+
+          gh release create "$TAG" \
+            --title "${{ matrix.package }} ${{ matrix.cuda_version }}" \
+            --notes "CUDA ${{ matrix.cuda_version }} runtime libraries for R." \
+            ${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz \
+            ${{ matrix.package }}_${{ matrix.cuda_version }}_R_*.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}-${{ matrix.cuda_version }}-source
+          path: "${{ matrix.package }}_${{ matrix.cuda_version }}.tar.gz"
+
+  update-repo-index:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+    steps:
+      - uses: r-lib/actions/setup-r@v2
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate PACKAGES index
+        run: |
+          mkdir -p repo/src/contrib
+
+          # Collect all source tarballs to generate the index
+          find artifacts -name '*.tar.gz' -exec cp {} repo/src/contrib/ \;
+
+          # Generate PACKAGES index
+          Rscript -e 'tools::write_PACKAGES("repo/src/contrib", type = "source")'
+
+          # Remove tarballs - only the index is deployed to gh-pages
+          rm repo/src/contrib/*.tar.gz
+
+      - name: Deploy PACKAGES index to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./repo
