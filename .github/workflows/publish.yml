@@ -23,6 +23,9 @@ jobs:
           - "cuda.runtime 12.6.77"
           - "cuda.runtime 12.8.90"
           - "cuda.runtime 12.9.79"
+          - "cuda.cublas 12.6.4.1"
+          - "cuda.cublas 12.8.4.1"
+          - "cuda.cublas 12.9.1.4"
           - "cuda.cudnn 9.5.0.50"
           - "cuda.cudnn 9.8.0.87"
     steps:
