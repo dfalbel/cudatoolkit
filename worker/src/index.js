@@ -64,7 +64,7 @@ async function fetchFromGHRelease(subPath, platform, env) {
   // Release asset: cuda.runtime_12.9.79_linux.tar.gz
   const filename = subPath.split("/").pop();
 
-  const match = filename.match(/^(.+?)_(\d+\.\d+\.\d+)\.tar\.gz$/);
+  const match = filename.match(/^(.+?)_(\d+(?:\.\d+)+)\.tar\.gz$/);
   if (!match) {
     return new Response(`Cannot parse package filename: ${filename}`, { status: 400 });
   }
