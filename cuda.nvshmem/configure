@@ -3,8 +3,7 @@
 # Downloads NVSHMEM libraries from PyPI during package installation.
 
 CUDA_VERSION=$(grep "^Version:" DESCRIPTION | sed 's/Version:[[:space:]]*//')
-CUDA_MAJOR=$(echo "$CUDA_VERSION" | cut -d. -f1)
-PACKAGE_NAME="nvidia_nvshmem_cu${CUDA_MAJOR}"
+PACKAGE_NAME="nvidia_nvshmem_cu12"
 
 detect_platform() {
   if [ -n "$CUDA_PLATFORM" ]; then
