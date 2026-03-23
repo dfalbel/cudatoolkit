@@ -28,6 +28,9 @@ jobs:
           - "cuda.cublas 12.9.1.4"
           - "cuda.cudnn 9.5.0.50"
           - "cuda.cudnn 9.8.0.87"
+          - "cuda.cupti 12.6.80"
+          - "cuda.cupti 12.8.90"
+          - "cuda.cupti 12.9.79"
           - "cuda.nvshmem 3.4.5"
         exclude:
           # NVSHMEM is Linux-only (no Windows wheels on PyPI)
