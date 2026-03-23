@@ -28,6 +28,11 @@ jobs:
           - "cuda.cublas 12.9.1.4"
           - "cuda.cudnn 9.5.0.50"
           - "cuda.cudnn 9.8.0.87"
+          - "cuda.nvshmem 3.4.5"
+        exclude:
+          # NVSHMEM is Linux-only (no Windows wheels on PyPI)
+          - platform: windows-x64
+            pkg: "cuda.nvshmem 3.4.5"
     steps:
       - uses: actions/checkout@v4
 
