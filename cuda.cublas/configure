@@ -9,8 +9,8 @@ PACKAGE_NAME="nvidia_cublas_cu${CUDA_MAJOR}"
 detect_platform() {
   if [ -n "$CUDA_PLATFORM" ]; then
     case "$CUDA_PLATFORM" in
-      linux-x64)    echo "manylinux2014_x86_64" ;;
-      linux-arm64)  echo "manylinux2014_aarch64" ;;
+      linux-x64)    echo "x86_64" ;;
+      linux-arm64)  echo "aarch64" ;;
       windows-x64)  echo "win_amd64" ;;
       *)
         echo "ERROR: Unknown CUDA_PLATFORM: $CUDA_PLATFORM" >&2
@@ -26,8 +26,8 @@ detect_platform() {
   case "$os" in
     Linux)
       case "$arch" in
-        x86_64)  echo "manylinux2014_x86_64" ;;
-        aarch64) echo "manylinux2014_aarch64" ;;
+        x86_64)  echo "x86_64" ;;
+        aarch64) echo "aarch64" ;;
         *)
           echo "ERROR: Unsupported Linux architecture: $arch" >&2
           exit 1
