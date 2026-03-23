@@ -31,9 +31,12 @@ jobs:
           - "cuda.cupti 12.6.80"
           - "cuda.cupti 12.8.90"
           - "cuda.cupti 12.9.79"
+          - "cuda.nccl 2.25.1"
           - "cuda.nvshmem 3.4.5"
         exclude:
-          # NVSHMEM is Linux-only (no Windows wheels on PyPI)
+          # NCCL and NVSHMEM are Linux-only (no Windows wheels on PyPI)
+          - platform: windows-x64
+            pkg: "cuda.nccl 2.25.1"
           - platform: windows-x64
             pkg: "cuda.nvshmem 3.4.5"
     steps:
