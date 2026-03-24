@@ -31,6 +31,9 @@ jobs:
           - "cuda.cupti 12.6.80"
           - "cuda.cupti 12.8.90"
           - "cuda.cupti 12.9.79"
+          - "cuda.nvrtc 12.6.77"
+          - "cuda.nvrtc 12.8.61"
+          - "cuda.nvrtc 12.9.41"
           - "cuda.nccl 2.25.1"
           - "cuda.nvshmem 3.4.5"
         exclude:
