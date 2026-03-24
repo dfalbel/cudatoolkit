@@ -146,7 +146,7 @@ jobs:
               cp "$f" "repo/${platform}/src/contrib/${basename}"
             done
 
-            Rscript -e "tools::write_PACKAGES('repo/${platform}/src/contrib', type = 'source')"
+            Rscript -e "tools::write_PACKAGES('repo/${platform}/src/contrib', type = 'source', latestOnly = FALSE)"
             rm -f repo/${platform}/src/contrib/*.tar.gz
           done
 
