@@ -1,0 +1,104 @@
+#!/bin/sh
+
+# Downloads CUDA NVCC tools (ptxas) from PyPI during package installation.
+
+CUDA_VERSION=$(grep "^Version:" DESCRIPTION | sed 's/Version:[[:space:]]*//')
+CUDA_MAJOR=$(echo "$CUDA_VERSION" | cut -d. -f1)
+PACKAGE_NAME="nvidia_cuda_nvcc_cu${CUDA_MAJOR}"
+
+detect_platform() {
+  if [ -n "$CUDA_PLATFORM" ]; then
+    case "$CUDA_PLATFORM" in
+      linux-x64)    echo "x86_64" ;;
+      linux-arm64)  echo "aarch64" ;;
+      windows-x64)  echo "win_amd64" ;;
+      *)
+        echo "ERROR: Unknown CUDA_PLATFORM: $CUDA_PLATFORM" >&2
+        exit 1
+        ;;
+    esac
+    return
+  fi
+
+  os=$(uname -s)
+  arch=$(uname -m)
+
+  case "$os" in
+    Linux)
+      case "$arch" in
+        x86_64)  echo "x86_64" ;;
+        aarch64) echo "aarch64" ;;
+        *)
+          echo "ERROR: Unsupported Linux architecture: $arch" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+      echo "win_amd64"
+      ;;
+    *)
+      echo "ERROR: Unsupported OS: $os" >&2
+      exit 1
+      ;;
+  esac
+}
+
+PLATFORM=$(detect_platform)
+
+# PyPI simple index gives us the actual download URL.
+PYPI_INDEX_URL="https://pypi.org/simple/${PACKAGE_NAME}/"
+
+echo "* Platform: ${PLATFORM}"
+echo "* Fetching package index from PyPI..."
+
+# Create a temporary directory for downloading
+TMPDIR=$(mktemp -d)
+trap "rm -rf '$TMPDIR'" EXIT
+
+INDEX_FILE="${TMPDIR}/index.html"
+
+if command -v curl > /dev/null 2>&1; then
+  curl -sL -o "$INDEX_FILE" "$PYPI_INDEX_URL"
+elif command -v wget > /dev/null 2>&1; then
+  wget -q -O "$INDEX_FILE" "$PYPI_INDEX_URL"
+else
+  echo "ERROR: Neither curl nor wget found." >&2
+  exit 1
+fi
+
+# PyPI wheel names use varying manylinux tags, so we match on the architecture suffix.
+WHEEL_URL=$(grep -o "href=\"[^\"]*${PACKAGE_NAME}-${CUDA_VERSION}-[^\"]*${PLATFORM}[^\"]*\"" "$INDEX_FILE" | head -1 | sed 's/href="//;s/"//')
+
+if [ -z "$WHEEL_URL" ]; then
+  echo "ERROR: Could not find wheel for ${PACKAGE_NAME}==${CUDA_VERSION} on ${PLATFORM}" >&2
+  exit 1
+fi
+
+# Remove fragment (#sha256=...)
+WHEEL_URL=$(echo "$WHEEL_URL" | sed 's/#.*//')
+WHEEL_NAME=$(basename "$WHEEL_URL")
+
+echo "* Downloading ${WHEEL_NAME}..."
+WHEEL_PATH="${TMPDIR}/${WHEEL_NAME}"
+
+if command -v curl > /dev/null 2>&1; then
+  curl -sL -o "$WHEEL_PATH" "$WHEEL_URL"
+elif command -v wget > /dev/null 2>&1; then
+  wget -q -O "$WHEEL_PATH" "$WHEEL_URL"
+fi
+
+if [ ! -f "$WHEEL_PATH" ]; then
+  echo "ERROR: Download failed." >&2
+  exit 1
+fi
+
+# Extract the wheel (it's a ZIP file) into inst/
+echo "* Extracting binaries and headers..."
+mkdir -p inst
+unzip -q -o "$WHEEL_PATH" "nvidia/cuda_nvcc/bin/*" -d inst/
+unzip -q -o "$WHEEL_PATH" "nvidia/cuda_nvcc/include/*" -d inst/
+# Ensure ptxas is executable
+chmod +x inst/nvidia/cuda_nvcc/bin/* 2>/dev/null || true
+
+echo "* NVCC ${CUDA_VERSION} installed successfully."
