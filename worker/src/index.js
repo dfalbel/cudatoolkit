@@ -60,11 +60,12 @@ async function fetchFromGHPages(path, env) {
 }
 
 async function fetchFromGHRelease(subPath, platform, env) {
-  // R requests: /src/contrib/cuda.runtime_12.9.79.tar.gz
-  // Release asset: cuda.runtime_12.9.79_linux.tar.gz
+  // R requests: /src/contrib/cuda12.8_1.0.0.tar.gz
+  // Release asset: cuda12.8_1.0.0_linux-x64.tar.gz
   const filename = subPath.split("/").pop();
 
-  const match = filename.match(/^(.+?)_(\d+(?:\.\d+)+)\.tar\.gz$/);
+  // Greedy match so "cuda12.8_1.0.0" gives package="cuda12.8", version="1.0.0"
+  const match = filename.match(/^(.+)_(\d+(?:\.\d+)+)\.tar\.gz$/);
   if (!match) {
     return new Response(`Cannot parse package filename: ${filename}`, { status: 400 });
   }

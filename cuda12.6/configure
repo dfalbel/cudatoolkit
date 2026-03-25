@@ -1,0 +1,122 @@
+#!/bin/sh
+
+# Downloads all CUDA 12.8 component libraries from PyPI during package installation.
+# Components and versions are defined in inst/components.tsv.
+
+detect_platform() {
+  if [ -n "$CUDA_PLATFORM" ]; then
+    case "$CUDA_PLATFORM" in
+      linux-x64)    echo "x86_64" ;;
+      linux-arm64)  echo "aarch64" ;;
+      windows-x64)  echo "win_amd64" ;;
+      *)
+        echo "ERROR: Unknown CUDA_PLATFORM: $CUDA_PLATFORM" >&2
+        exit 1
+        ;;
+    esac
+    return
+  fi
+
+  os=$(uname -s)
+  arch=$(uname -m)
+
+  case "$os" in
+    Linux)
+      case "$arch" in
+        x86_64)  echo "x86_64" ;;
+        aarch64) echo "aarch64" ;;
+        *)
+          echo "ERROR: Unsupported Linux architecture: $arch" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+      echo "win_amd64"
+      ;;
+    *)
+      echo "ERROR: Unsupported OS: $os" >&2
+      exit 1
+      ;;
+  esac
+}
+
+is_windows() {
+  case "$PLATFORM" in
+    win_amd64) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+download_file() {
+  url="$1"
+  dest="$2"
+  if command -v curl > /dev/null 2>&1; then
+    curl -sL -o "$dest" "$url"
+  elif command -v wget > /dev/null 2>&1; then
+    wget -q -O "$dest" "$url"
+  else
+    echo "ERROR: Neither curl nor wget found." >&2
+    exit 1
+  fi
+}
+
+PLATFORM=$(detect_platform)
+TMPDIR=$(mktemp -d)
+trap "rm -rf '$TMPDIR'" EXIT
+
+echo "=== CUDA Toolkit Package Install ==="
+echo "* Platform: ${PLATFORM}"
+echo ""
+
+# Read components.tsv (skip header line)
+tail -n +2 inst/components.tsv | while IFS="	" read -r component pypi_package version wheel_subdir extract linux_only; do
+
+  # Skip linux-only components on Windows
+  if [ "$linux_only" = "yes" ] && is_windows; then
+    echo "* Skipping ${component} (Linux-only)"
+    continue
+  fi
+
+  echo "* Installing ${component} ${version}..."
+
+  # Fetch PyPI index
+  INDEX_FILE="${TMPDIR}/index_${component}.html"
+  download_file "https://pypi.org/simple/${pypi_package}/" "$INDEX_FILE"
+
+  # Find matching wheel
+  WHEEL_URL=$(grep -o "href=\"[^\"]*${pypi_package}-${version}-[^\"]*${PLATFORM}[^\"]*\"" "$INDEX_FILE" | head -1 | sed 's/href="//;s/"//')
+
+  if [ -z "$WHEEL_URL" ]; then
+    echo "  ERROR: Could not find wheel for ${pypi_package}==${version} on ${PLATFORM}" >&2
+    exit 1
+  fi
+
+  WHEEL_URL=$(echo "$WHEEL_URL" | sed 's/#.*//')
+  WHEEL_NAME=$(basename "$WHEEL_URL")
+  WHEEL_PATH="${TMPDIR}/${WHEEL_NAME}"
+
+  echo "  Downloading ${WHEEL_NAME}..."
+  download_file "$WHEEL_URL" "$WHEEL_PATH"
+
+  if [ ! -f "$WHEEL_PATH" ]; then
+    echo "  ERROR: Download failed." >&2
+    exit 1
+  fi
+
+  # Extract based on extract column (lib,include or bin,include)
+  mkdir -p inst
+  for dir in $(echo "$extract" | tr ',' ' '); do
+    unzip -q -o "$WHEEL_PATH" "nvidia/${wheel_subdir}/${dir}/*" -d inst/ 2>/dev/null || true
+  done
+
+  # Ensure binaries are executable (for nvcc/ptxas)
+  if echo "$extract" | grep -q "bin"; then
+    chmod +x inst/nvidia/${wheel_subdir}/bin/* 2>/dev/null || true
+  fi
+
+  echo "  Done."
+done
+
+echo ""
+echo "=== All components installed successfully ==="
