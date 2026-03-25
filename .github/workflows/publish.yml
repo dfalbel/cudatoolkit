@@ -34,6 +34,10 @@ jobs:
           - "cuda.nvrtc 12.6.77"
           - "cuda.nvrtc 12.8.61"
           - "cuda.nvrtc 12.9.41"
+          - "cuda.cufft 11.3.3.41"
+          - "cuda.cusolver 11.7.2.55"
+          - "cuda.cusparse 12.5.7.53"
+          - "cuda.nvjitlink 12.8.61"
           - "cuda.nccl 2.25.1"
           - "cuda.nvshmem 3.4.5"
         exclude:
