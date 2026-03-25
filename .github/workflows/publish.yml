@@ -39,11 +39,14 @@ jobs:
           - "cuda.cusparse 12.5.7.53"
           - "cuda.nvjitlink 12.8.61"
           - "cuda.nccl 2.25.1"
+          - "cuda.nccl 2.29.7"
           - "cuda.nvshmem 3.4.5"
         exclude:
           # NCCL and NVSHMEM are Linux-only (no Windows wheels on PyPI)
           - platform: windows-x64
             pkg: "cuda.nccl 2.25.1"
+          - platform: windows-x64
+            pkg: "cuda.nccl 2.29.7"
           - platform: windows-x64
             pkg: "cuda.nvshmem 3.4.5"
     steps:
