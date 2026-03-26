@@ -59,15 +59,47 @@ jobs:
               cuda/DESCRIPTION.template > "${PKG}/DESCRIPTION"
           rm "${PKG}/DESCRIPTION.template"
 
-          # Write toolkit version
           mkdir -p "${PKG}/inst"
-          echo "${{ matrix.toolkit_version }}" > "${PKG}/inst/cuda-toolkit-version"
 
-          # Write extra components (cudnn, nccl, nvshmem)
-          printf 'component\tpypi_package\tversion\twheel_subdir\textract\tlinux_only\n' > "${PKG}/inst/extra-components.tsv"
-          printf 'cudnn\tnvidia_cudnn_cu12\t${{ matrix.cudnn_version }}\tcudnn\tlib,include\tno\n' >> "${PKG}/inst/extra-components.tsv"
-          printf 'nccl\tnvidia_nccl_cu12\t${{ matrix.nccl_version }}\tnccl\tlib,include\tyes\n' >> "${PKG}/inst/extra-components.tsv"
-          printf 'nvshmem\tnvidia_nvshmem_cu12\t${{ matrix.nvshmem_version }}\tnvshmem\tlib,include\tyes\n' >> "${PKG}/inst/extra-components.tsv"
+          # Resolve and pin component versions from cuda-toolkit on PyPI
+          curl -sL "https://pypi.org/pypi/cuda-toolkit/${{ matrix.toolkit_version }}/json" -o /tmp/toolkit.json
+          HEADER='component\tpypi_package\tversion\twheel_subdir\textract\tlinux_only'
+          printf "${HEADER}\n" > "${PKG}/inst/components.tsv"
+
+          # Map: component pypi_package wheel_subdir extract
+          TOOLKIT_COMPONENTS="
+          runtime   nvidia_cuda_runtime_cu12  cuda_runtime  lib,include no
+          cublas    nvidia_cublas_cu12        cublas         lib,include no
+          cupti     nvidia_cuda_cupti_cu12    cuda_cupti     lib,include no
+          nvrtc     nvidia_cuda_nvrtc_cu12    cuda_nvrtc     lib,include no
+          cufft     nvidia_cufft_cu12         cufft          lib,include no
+          cusolver  nvidia_cusolver_cu12      cusolver       lib,include no
+          cusparse  nvidia_cusparse_cu12      cusparse       lib,include no
+          nvjitlink nvidia_nvjitlink_cu12     nvjitlink      lib,include no
+          nvcc      nvidia_cuda_nvcc_cu12     cuda_nvcc      bin,include no
+          "
+
+          # Extract pinned versions from cuda-toolkit metadata
+          grep -o '"nvidia[a-z_-]*-cu12==[0-9.]*\.\*' /tmp/toolkit.json \
+            | sed 's/"//g; s/\.\*$//' \
+            | sed 's/-/_/g' \
+            | sed 's/==/=/' > /tmp/versions.txt
+
+          echo "$TOOLKIT_COMPONENTS" | while read -r comp pkg subdir extract linux_only; do
+            [ -z "$comp" ] && continue
+            ver=$(grep "^${pkg}=" /tmp/versions.txt | head -1 | cut -d= -f2)
+            if [ -n "$ver" ]; then
+              printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$comp" "$pkg" "$ver" "$subdir" "$extract" "$linux_only" >> "${PKG}/inst/components.tsv"
+            fi
+          done
+
+          # Append extra components not in cuda-toolkit (cudnn, nccl, nvshmem)
+          printf 'cudnn\tnvidia_cudnn_cu12\t${{ matrix.cudnn_version }}\tcudnn\tlib,include\tno\n' >> "${PKG}/inst/components.tsv"
+          printf 'nccl\tnvidia_nccl_cu12\t${{ matrix.nccl_version }}\tnccl\tlib,include\tyes\n' >> "${PKG}/inst/components.tsv"
+          printf 'nvshmem\tnvidia_nvshmem_cu12\t${{ matrix.nvshmem_version }}\tnvshmem\tlib,include\tyes\n' >> "${PKG}/inst/components.tsv"
+
+          echo "Pinned components:"
+          cat "${PKG}/inst/components.tsv"
 
       - name: Build source tarball
         if: steps.check.outputs.exists == 'false'
