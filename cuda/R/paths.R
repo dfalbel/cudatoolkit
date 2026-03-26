@@ -30,13 +30,14 @@ cuda_path <- function(component) {
               package = packageName(), mustWork = TRUE)
 }
 
-#' Path to a CUDA component's shared libraries
+#' Path to the shared library directory
 #'
-#' @param component Component name (e.g., "runtime", "cublas", "cudnn").
+#' All CUDA component libraries are installed into a single shared directory.
+#'
 #' @return A character string with the path to the lib directory.
 #' @export
-lib_path <- function(component) {
-  file.path(cuda_path(component), "lib")
+lib_path <- function() {
+  system.file("lib", package = packageName(), mustWork = TRUE)
 }
 
 #' Path to a CUDA component's headers
@@ -57,22 +58,13 @@ bin_path <- function(component) {
   file.path(cuda_path(component), "bin")
 }
 
-#' List all library paths for all installed components
+#' Path to the shared library directory
 #'
-#' Returns a character vector of unique lib directories. Useful for setting
-#' LD_LIBRARY_PATH or registering with ldconfig.
+#' Alias for \code{\link{lib_path}}. All CUDA component libraries are in a
+#' single directory, so this simply returns that path.
 #'
-#' @return A character vector of library paths.
+#' @return A character vector of length one with the library path.
 #' @export
 all_lib_paths <- function() {
-  if (is.null(.component_subdir_env$map)) {
-    .component_subdir_env$map <- .read_components()
-  }
-  pkg <- packageName()
-  subdirs <- unique(.component_subdir_env$map)
-  paths <- vapply(subdirs, function(subdir) {
-    p <- system.file(file.path("nvidia", subdir, "lib"), package = pkg)
-    if (nzchar(p)) p else NA_character_
-  }, character(1))
-  unique(paths[!is.na(paths)])
+  lib_path()
 }

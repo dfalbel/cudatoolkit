@@ -19,11 +19,9 @@ Monorepo that produces R packages distributing CUDA toolkit binaries from PyPI. 
 
 ### R API
 ```r
-cuda12.8::lib_path("runtime")      # path to libcudart.so.12 etc.
-cuda12.8::lib_path("cublas")       # path to libcublas.so.12 etc.
+cuda12.8::lib_path()               # path to all shared libraries
 cuda12.8::include_path("cudnn")    # path to cudnn headers
 cuda12.8::bin_path("nvcc")         # path to ptxas binary
-cuda12.8::all_lib_paths()          # all lib dirs for LD_LIBRARY_PATH
 ```
 
 ### Environment variables

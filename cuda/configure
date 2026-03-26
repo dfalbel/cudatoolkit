@@ -98,6 +98,9 @@ if [ -n "$SELECTED_COMPONENTS" ]; then
 fi
 echo ""
 
+# Shared lib directory for all components
+mkdir -p inst/lib
+
 # Read components.tsv (skip header) and install each component
 tail -n +2 inst/components.tsv | while IFS="	" read -r component pypi_package version wheel_subdir extract linux_only; do
   [ -z "$component" ] && continue
@@ -151,6 +154,12 @@ tail -n +2 inst/components.tsv | while IFS="	" read -r component pypi_package ve
   for dir in $(echo "$extract" | tr ',' ' '); do
     unzip -q -o "$WHEEL_PATH" "nvidia/${wheel_subdir}/${dir}/*" -d inst/ 2>/dev/null || true
   done
+
+  # Move shared libraries into the unified lib directory
+  if [ -d "inst/nvidia/${wheel_subdir}/lib" ]; then
+    mv inst/nvidia/${wheel_subdir}/lib/* inst/lib/ 2>/dev/null || true
+    rmdir inst/nvidia/${wheel_subdir}/lib 2>/dev/null || true
+  fi
 
   # Ensure binaries are executable (for nvcc/ptxas)
   if echo "$extract" | grep -q "bin"; then
