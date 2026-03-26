@@ -1,7 +1,24 @@
 #!/bin/sh
 
-# Downloads all CUDA 12.8 component libraries from PyPI during package installation.
-# Components and versions are defined in inst/components.tsv.
+# Downloads CUDA toolkit components from PyPI during package installation.
+# Component versions are resolved from the cuda-toolkit meta-package on PyPI.
+
+# The CUDA toolkit version to install. Read from inst/cuda-toolkit-version.
+TOOLKIT_VERSION=$(cat inst/cuda-toolkit-version)
+
+# Components we want to install. Each line: component_name pypi_package wheel_subdir extract_dirs [linux_only]
+# Components NOT in cuda-toolkit (cudnn, nccl, nvshmem) have versions in inst/extra-components.tsv.
+COMPONENTS="
+runtime   nvidia_cuda_runtime_cu12  cuda_runtime  lib,include
+cublas    nvidia_cublas_cu12        cublas         lib,include
+cupti     nvidia_cuda_cupti_cu12    cuda_cupti     lib,include
+nvrtc     nvidia_cuda_nvrtc_cu12    cuda_nvrtc     lib,include
+cufft     nvidia_cufft_cu12         cufft          lib,include
+cusolver  nvidia_cusolver_cu12      cusolver       lib,include
+cusparse  nvidia_cusparse_cu12      cusparse       lib,include
+nvjitlink nvidia_nvjitlink_cu12     nvjitlink      lib,include
+nvcc      nvidia_cuda_nvcc_cu12     cuda_nvcc      bin,include
+"
 
 detect_platform() {
   if [ -n "$CUDA_PLATFORM" ]; then
@@ -49,8 +66,7 @@ is_windows() {
 }
 
 download_file() {
-  url="$1"
-  dest="$2"
+  url="$1"; dest="$2"
   if command -v curl > /dev/null 2>&1; then
     curl -sL -o "$dest" "$url"
   elif command -v wget > /dev/null 2>&1; then
@@ -61,35 +77,17 @@ download_file() {
   fi
 }
 
-PLATFORM=$(detect_platform)
-TMPDIR=$(mktemp -d)
-trap "rm -rf '$TMPDIR'" EXIT
+download_component() {
+  pypi_package="$1"; version="$2"; wheel_subdir="$3"; extract="$4"
 
-echo "=== CUDA Toolkit Package Install ==="
-echo "* Platform: ${PLATFORM}"
-echo ""
-
-# Read components.tsv (skip header line)
-tail -n +2 inst/components.tsv | while IFS="	" read -r component pypi_package version wheel_subdir extract linux_only; do
-
-  # Skip linux-only components on Windows
-  if [ "$linux_only" = "yes" ] && is_windows; then
-    echo "* Skipping ${component} (Linux-only)"
-    continue
-  fi
-
-  echo "* Installing ${component} ${version}..."
-
-  # Fetch PyPI index
-  INDEX_FILE="${TMPDIR}/index_${component}.html"
+  INDEX_FILE="${TMPDIR}/index_${pypi_package}.html"
   download_file "https://pypi.org/simple/${pypi_package}/" "$INDEX_FILE"
 
-  # Find matching wheel
-  WHEEL_URL=$(grep -o "href=\"[^\"]*${pypi_package}-${version}-[^\"]*${PLATFORM}[^\"]*\"" "$INDEX_FILE" | head -1 | sed 's/href="//;s/"//')
+  WHEEL_URL=$(grep -o "href=\"[^\"]*${pypi_package}-${version}[^\"]*${PLATFORM}[^\"]*\"" "$INDEX_FILE" | head -1 | sed 's/href="//;s/"//')
 
   if [ -z "$WHEEL_URL" ]; then
     echo "  ERROR: Could not find wheel for ${pypi_package}==${version} on ${PLATFORM}" >&2
-    exit 1
+    return 1
   fi
 
   WHEEL_URL=$(echo "$WHEEL_URL" | sed 's/#.*//')
@@ -101,22 +99,85 @@ tail -n +2 inst/components.tsv | while IFS="	" read -r component pypi_package ve
 
   if [ ! -f "$WHEEL_PATH" ]; then
     echo "  ERROR: Download failed." >&2
-    exit 1
+    return 1
   fi
 
-  # Extract based on extract column (lib,include or bin,include)
   mkdir -p inst
   for dir in $(echo "$extract" | tr ',' ' '); do
     unzip -q -o "$WHEEL_PATH" "nvidia/${wheel_subdir}/${dir}/*" -d inst/ 2>/dev/null || true
   done
 
-  # Ensure binaries are executable (for nvcc/ptxas)
   if echo "$extract" | grep -q "bin"; then
     chmod +x inst/nvidia/${wheel_subdir}/bin/* 2>/dev/null || true
   fi
 
+  rm -f "$WHEEL_PATH"
+  return 0
+}
+
+PLATFORM=$(detect_platform)
+TMPDIR=$(mktemp -d)
+trap "rm -rf '$TMPDIR'" EXIT
+
+echo "=== CUDA Toolkit ${TOOLKIT_VERSION} ==="
+echo "* Platform: ${PLATFORM}"
+echo ""
+
+# Resolve component versions from cuda-toolkit meta-package on PyPI
+echo "* Resolving component versions from cuda-toolkit ${TOOLKIT_VERSION}..."
+DEPS_FILE="${TMPDIR}/deps.json"
+download_file "https://pypi.org/pypi/cuda-toolkit/${TOOLKIT_VERSION}/json" "$DEPS_FILE"
+
+# Extract dependency versions: parse nvidia-foo-cu12==1.2.3.* from JSON
+VERSIONS_FILE="${TMPDIR}/versions.txt"
+grep -o '"nvidia[a-z_-]*-cu12==[0-9.]*\.\*' "$DEPS_FILE" \
+  | sed 's/"//g; s/\.\*$//' \
+  | sed 's/-/_/g' \
+  | sed 's/==\(.*\)/=\1/' \
+  | sort -u > "$VERSIONS_FILE"
+
+if [ ! -s "$VERSIONS_FILE" ]; then
+  echo "ERROR: Failed to resolve versions from cuda-toolkit ${TOOLKIT_VERSION}" >&2
+  exit 1
+fi
+
+# Install toolkit components
+echo "$COMPONENTS" | while read -r component pypi_package wheel_subdir extract; do
+  [ -z "$component" ] && continue
+
+  # Look up version from resolved deps
+  version=$(grep "^${pypi_package}=" "$VERSIONS_FILE" | head -1 | cut -d= -f2)
+  if [ -z "$version" ]; then
+    echo "* Skipping ${component} (not found in cuda-toolkit ${TOOLKIT_VERSION})"
+    continue
+  fi
+
+  echo "* Installing ${component} ${version}..."
+  if ! download_component "$pypi_package" "$version" "$wheel_subdir" "$extract"; then
+    exit 1
+  fi
   echo "  Done."
 done
+
+# Install extra components (not part of cuda-toolkit): cudnn, nccl, nvshmem
+if [ -f inst/extra-components.tsv ]; then
+  echo ""
+  echo "* Installing extra components..."
+  tail -n +2 inst/extra-components.tsv | while IFS="	" read -r component pypi_package version wheel_subdir extract linux_only; do
+    [ -z "$component" ] && continue
+
+    if [ "$linux_only" = "yes" ] && is_windows; then
+      echo "* Skipping ${component} (Linux-only)"
+      continue
+    fi
+
+    echo "* Installing ${component} ${version}..."
+    if ! download_component "$pypi_package" "$version" "$wheel_subdir" "$extract"; then
+      exit 1
+    fi
+    echo "  Done."
+  done
+fi
 
 echo ""
 echo "=== All components installed successfully ==="

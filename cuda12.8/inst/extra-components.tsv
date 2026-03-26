@@ -1,0 +1,4 @@
+component	pypi_package	version	wheel_subdir	extract	linux_only
+cudnn	nvidia_cudnn_cu12	9.8.0.87	cudnn	lib,include	no
+nccl	nvidia_nccl_cu12	2.26.5	nccl	lib,include	yes
+nvshmem	nvidia_nvshmem_cu12	3.4.5	nvshmem	lib,include	yes
