@@ -15,8 +15,7 @@ Monorepo that produces R packages distributing CUDA toolkit binaries from PyPI. 
 - **`NAMESPACE`**, **`LICENSE`** — shared across all generated packages.
 
 ### Generated files (by CI, not in repo)
-- **`inst/cuda-toolkit-version`** — e.g. `12.8.1`, used by configure to resolve versions.
-- **`inst/extra-components.tsv`** — versions for cudnn, nccl, nvshmem (not in the cuda-toolkit meta-package).
+- **`inst/components.tsv`** — fully pinned component versions (resolved from cuda-toolkit on PyPI at build time).
 
 ### R API
 ```r
@@ -27,8 +26,12 @@ cuda12.8::bin_path("nvcc")         # path to ptxas binary
 cuda12.8::all_lib_paths()          # all lib dirs for LD_LIBRARY_PATH
 ```
 
+### Environment variables
+- **`CUDA_COMPONENTS`** — comma-separated list of components to install. Default: all. Use `@version` to override pinned versions. Example: `CUDA_COMPONENTS=runtime,cublas,cudnn@9.10.0.56`. Available components: `runtime`, `cublas`, `cudnn`, `cupti`, `nvrtc`, `cufft`, `cusolver`, `cusparse`, `nvjitlink`, `nccl`, `nvshmem`, `nvcc`.
+- **`CUDA_PLATFORM`** — override platform detection. Values: `linux-x64`, `linux-arm64`, `windows-x64`.
+
 ### Version resolution
-Component versions are resolved dynamically from the `cuda-toolkit` PyPI meta-package at install time. The configure script fetches `https://pypi.org/pypi/cuda-toolkit/{version}/json` and parses pinned dependency versions. Only cudnn, nccl, and nvshmem (which are not part of cuda-toolkit) have versions specified in `inst/extra-components.tsv`.
+Component versions are pinned at build time from the `cuda-toolkit` PyPI meta-package and stored in `inst/components.tsv`. Only cudnn, nccl, and nvshmem (not part of cuda-toolkit) have versions specified separately in the CI matrix.
 
 ### Distribution
 - **GitHub Releases** store source tarballs. Tag convention: `cuda{X.Y}-{version}` (e.g., `cuda12.8-1.0.0`).

@@ -3,6 +3,13 @@
 # Downloads CUDA toolkit components from PyPI during package installation.
 # Component names and pinned versions are read from inst/components.tsv
 # (generated at build time by CI).
+#
+# Environment variables:
+#   CUDA_COMPONENTS  Comma-separated list of components to install.
+#                    Default: all components. Example: "runtime,cublas,cudnn"
+#                    Use @version to override a component's pinned version:
+#                    "runtime,cublas,cudnn@9.10.0.56"
+#   CUDA_PLATFORM    Override platform detection (linux-x64, linux-arm64, windows-x64).
 
 detect_platform() {
   if [ -n "$CUDA_PLATFORM" ]; then
@@ -65,13 +72,41 @@ PLATFORM=$(detect_platform)
 TMPDIR=$(mktemp -d)
 trap "rm -rf '$TMPDIR'" EXIT
 
+# Parse CUDA_COMPONENTS filter and version overrides
+SELECTED_COMPONENTS="${CUDA_COMPONENTS:-}"
+
+is_selected() {
+  comp="$1"
+  # If no filter set, install all
+  [ -z "$SELECTED_COMPONENTS" ] && return 0
+  # Check if component (with or without @version) is in the comma-separated list
+  echo ",$SELECTED_COMPONENTS," | grep -q ",${comp}," || echo ",$SELECTED_COMPONENTS," | grep -q ",${comp}@"
+}
+
+# Get version override for a component, or empty if not overridden
+get_version_override() {
+  comp="$1"
+  [ -z "$SELECTED_COMPONENTS" ] && return
+  override=$(echo ",$SELECTED_COMPONENTS," | grep -o ",${comp}@[^,]*," | sed "s/,//g;s/${comp}@//")
+  echo "$override"
+}
+
 echo "=== CUDA Toolkit ==="
 echo "* Platform: ${PLATFORM}"
+if [ -n "$SELECTED_COMPONENTS" ]; then
+  echo "* Components: ${SELECTED_COMPONENTS}"
+fi
 echo ""
 
 # Read components.tsv (skip header) and install each component
 tail -n +2 inst/components.tsv | while IFS="	" read -r component pypi_package version wheel_subdir extract linux_only; do
   [ -z "$component" ] && continue
+
+  # Skip components not in the selection
+  if ! is_selected "$component"; then
+    echo "* Skipping ${component} (not selected)"
+    continue
+  fi
 
   # Skip linux-only components on Windows
   if [ "$linux_only" = "yes" ] && is_windows; then
@@ -79,7 +114,14 @@ tail -n +2 inst/components.tsv | while IFS="	" read -r component pypi_package ve
     continue
   fi
 
-  echo "* Installing ${component} ${version}..."
+  # Check for version override
+  ver_override=$(get_version_override "$component")
+  if [ -n "$ver_override" ]; then
+    version="$ver_override"
+    echo "* Installing ${component} ${version} (overridden)..."
+  else
+    echo "* Installing ${component} ${version}..."
+  fi
 
   # Fetch PyPI simple index for this package
   INDEX_FILE="${TMPDIR}/index_${pypi_package}.html"
