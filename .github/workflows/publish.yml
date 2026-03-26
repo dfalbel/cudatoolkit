@@ -60,6 +60,7 @@ jobs:
           rm "${PKG}/DESCRIPTION.template"
 
           # Write toolkit version
+          mkdir -p "${PKG}/inst"
           echo "${{ matrix.toolkit_version }}" > "${PKG}/inst/cuda-toolkit-version"
 
           # Write extra components (cudnn, nccl, nvshmem)
