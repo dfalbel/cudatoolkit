@@ -5,22 +5,22 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Release tag format: {package}-{version}
-# e.g. cuda12.8-1.0.0
-# Asset naming: {package}_{version}_{platform}.tar.gz
+# Source-only tarballs. Libraries are downloaded from PyPI at install time
+# by the configure script.
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
-        platform: [linux-x64, linux-arm64, windows-x64]
         package: [cuda12.6, cuda12.8]
     steps:
       - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
 
       - name: Get package version
         id: parse
@@ -34,31 +34,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ matrix.package }}-${{ steps.parse.outputs.version }}"
-          ASSET="${{ matrix.package }}_${{ steps.parse.outputs.version }}_${{ matrix.platform }}.tar.gz"
+          ASSET="${{ matrix.package }}_${{ steps.parse.outputs.version }}.tar.gz"
           if gh release view "$TAG" --json assets --jq ".assets[].name" 2>/dev/null | grep -q "^${ASSET}$"; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: r-lib/actions/setup-r@v2
+      - name: Build source tarball
         if: steps.check.outputs.exists == 'false'
-
-      - name: Run configure to download libs
-        if: steps.check.outputs.exists == 'false'
-        working-directory: ${{ matrix.package }}
-        env:
-          CUDA_PLATFORM: ${{ matrix.platform }}
-        run: ./configure
-
-      - name: Remove configure and build fat source tarball
-        if: steps.check.outputs.exists == 'false'
-        run: |
-          PKG="${{ matrix.package }}"
-          VER="${{ steps.parse.outputs.version }}"
-          rm "${PKG}/configure"
-          R CMD build "$PKG" --no-build-vignettes
-          mv "${PKG}_${VER}.tar.gz" "${PKG}_${VER}_${{ matrix.platform }}.tar.gz"
+        run: R CMD build ${{ matrix.package }} --no-build-vignettes
 
       - name: Upload to GitHub Release
         if: steps.check.outputs.exists == 'false'
@@ -68,26 +53,17 @@ jobs:
           PKG="${{ matrix.package }}"
           VER="${{ steps.parse.outputs.version }}"
           TAG="${PKG}-${VER}"
-          ASSET="${PKG}_${VER}_${{ matrix.platform }}.tar.gz"
+          ASSET="${PKG}_${VER}.tar.gz"
           gh release create "$TAG" \
             --title "${PKG} ${VER}" \
-            --notes "${PKG} ${VER} — CUDA toolkit libraries for R." \
+            --notes "${PKG} ${VER} — CUDA toolkit libraries for R. Libraries are downloaded from PyPI during installation." \
             2>/dev/null || true
           gh release upload "$TAG" "$ASSET" --clobber
 
-      - name: Download asset from existing release
-        if: steps.check.outputs.exists == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ matrix.package }}-${{ steps.parse.outputs.version }}"
-          ASSET="${{ matrix.package }}_${{ steps.parse.outputs.version }}_${{ matrix.platform }}.tar.gz"
-          gh release download "$TAG" --pattern "$ASSET"
-
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.package }}-${{ steps.parse.outputs.version }}-${{ matrix.platform }}
-          path: "${{ matrix.package }}_${{ steps.parse.outputs.version }}_${{ matrix.platform }}.tar.gz"
+          name: ${{ matrix.package }}-${{ steps.parse.outputs.version }}
+          path: "${{ matrix.package }}_${{ steps.parse.outputs.version }}.tar.gz"
 
   update-repo-index:
     needs: build
@@ -105,21 +81,15 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate PACKAGES indices per platform
+      - name: Generate PACKAGES index
         run: |
-          for platform in linux-x64 linux-arm64 windows-x64; do
-            mkdir -p "repo/${platform}/src/contrib"
-
-            # Collect tarballs for this platform, renaming back to standard R name
-            for f in artifacts/*-${platform}/*.tar.gz; do
-              [ -f "$f" ] || continue
-              basename=$(basename "$f" | sed "s/_${platform}\.tar\.gz/.tar.gz/")
-              cp "$f" "repo/${platform}/src/contrib/${basename}"
-            done
-
-            Rscript -e "tools::write_PACKAGES('repo/${platform}/src/contrib', type = 'source', latestOnly = FALSE)"
-            rm -f repo/${platform}/src/contrib/*.tar.gz
+          mkdir -p repo/src/contrib
+          for f in artifacts/*/*.tar.gz; do
+            [ -f "$f" ] || continue
+            cp "$f" "repo/src/contrib/"
           done
+          Rscript -e "tools::write_PACKAGES('repo/src/contrib', type = 'source', latestOnly = FALSE)"
+          rm -f repo/src/contrib/*.tar.gz
 
       - uses: actions/upload-pages-artifact@v3
         with:
