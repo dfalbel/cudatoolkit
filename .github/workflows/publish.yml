@@ -120,11 +120,13 @@ jobs:
 
           # Extract pinned versions from cuda-toolkit metadata
           # Matches both nvidia-foo-cu12==ver.* and nvidia-foo==ver.*
-          grep -o '"nvidia[a-z_-]*==[0-9.]*\.\*' /tmp/toolkit.json \
-            | sed 's/"//g; s/\.\*$//' \
+          grep -oE 'nvidia-[a-z-]+(|-cu[0-9]+)==[0-9.]+\.\*' /tmp/toolkit.json \
+            | sed 's/\.\*$//' \
             | sed 's/-/_/g' \
             | sed 's/==/=/' \
             | sort -u > /tmp/versions.txt
+          echo "Resolved versions:"
+          cat /tmp/versions.txt
 
           echo "$TOOLKIT_COMPONENTS" | while read -r comp pkg subdir extract linux_only; do
             [ -z "$comp" ] && continue
