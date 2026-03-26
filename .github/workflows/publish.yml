@@ -18,17 +18,26 @@ jobs:
       matrix:
         include:
           - cuda_minor: "12.6"
+            cuda_major: "12"
             toolkit_version: "12.6.3"
             pkg_version: "1.0.0"
             cudnn_version: "9.5.0.50"
             nccl_version: "2.23.4"
             nvshmem_version: "3.1.7"
           - cuda_minor: "12.8"
+            cuda_major: "12"
             toolkit_version: "12.8.1"
             pkg_version: "1.0.0"
             cudnn_version: "9.8.0.87"
             nccl_version: "2.26.5"
             nvshmem_version: "3.4.5"
+          - cuda_minor: "13.2"
+            cuda_major: "13"
+            toolkit_version: "13.2.0"
+            pkg_version: "1.0.0"
+            cudnn_version: "9.20.0.48"
+            nccl_version: "2.29.7"
+            nvshmem_version: "3.6.5"
     steps:
       - uses: actions/checkout@v4
 
@@ -60,30 +69,62 @@ jobs:
           rm "${PKG}/DESCRIPTION.template"
 
           mkdir -p "${PKG}/inst"
+          CUDA_MAJOR="${{ matrix.cuda_major }}"
 
           # Resolve and pin component versions from cuda-toolkit on PyPI
           curl -sL "https://pypi.org/pypi/cuda-toolkit/${{ matrix.toolkit_version }}/json" -o /tmp/toolkit.json
-          HEADER='component\tpypi_package\tversion\twheel_subdir\textract\tlinux_only'
-          printf "${HEADER}\n" > "${PKG}/inst/components.tsv"
+          printf 'component\tpypi_package\tversion\twheel_subdir\textract\tlinux_only\n' > "${PKG}/inst/components.tsv"
 
-          # Map: component pypi_package wheel_subdir extract
-          TOOLKIT_COMPONENTS="
-          runtime   nvidia_cuda_runtime_cu12  cuda_runtime  lib,include no
-          cublas    nvidia_cublas_cu12        cublas         lib,include no
-          cupti     nvidia_cuda_cupti_cu12    cuda_cupti     lib,include no
-          nvrtc     nvidia_cuda_nvrtc_cu12    cuda_nvrtc     lib,include no
-          cufft     nvidia_cufft_cu12         cufft          lib,include no
-          cusolver  nvidia_cusolver_cu12      cusolver       lib,include no
-          cusparse  nvidia_cusparse_cu12      cusparse       lib,include no
-          nvjitlink nvidia_nvjitlink_cu12     nvjitlink      lib,include no
-          nvcc      nvidia_cuda_nvcc_cu12     cuda_nvcc      bin,include no
-          "
+          # CUDA 12: packages have _cu12 suffix, each component has its own wheel subdir
+          # CUDA 13+: packages have no cu suffix, all components share nvidia/cu{major}/ subdir
+          if [ "$CUDA_MAJOR" = "12" ]; then
+            PYPI_SUFFIX="_cu12"
+            TOOLKIT_COMPONENTS="
+            runtime   nvidia_cuda_runtime${PYPI_SUFFIX}  cuda_runtime  lib,include no
+            cublas    nvidia_cublas${PYPI_SUFFIX}         cublas         lib,include no
+            cupti     nvidia_cuda_cupti${PYPI_SUFFIX}     cuda_cupti     lib,include no
+            nvrtc     nvidia_cuda_nvrtc${PYPI_SUFFIX}     cuda_nvrtc     lib,include no
+            cufft     nvidia_cufft${PYPI_SUFFIX}          cufft          lib,include no
+            cusolver  nvidia_cusolver${PYPI_SUFFIX}       cusolver       lib,include no
+            cusparse  nvidia_cusparse${PYPI_SUFFIX}       cusparse       lib,include no
+            nvjitlink nvidia_nvjitlink${PYPI_SUFFIX}      nvjitlink      lib,include no
+            nvcc      nvidia_cuda_nvcc${PYPI_SUFFIX}      cuda_nvcc      bin,include no
+            "
+            CUDNN_PKG="nvidia_cudnn${PYPI_SUFFIX}"
+            NCCL_PKG="nvidia_nccl${PYPI_SUFFIX}"
+            NVSHMEM_PKG="nvidia_nvshmem${PYPI_SUFFIX}"
+            CUDNN_SUBDIR="cudnn"
+            NCCL_SUBDIR="nccl"
+            NVSHMEM_SUBDIR="nvshmem"
+          else
+            PYPI_SUFFIX=""
+            WHEEL_SUBDIR="cu${CUDA_MAJOR}"
+            TOOLKIT_COMPONENTS="
+            runtime   nvidia_cuda_runtime      ${WHEEL_SUBDIR}  lib,include no
+            cublas    nvidia_cublas             ${WHEEL_SUBDIR}  lib,include no
+            cupti     nvidia_cuda_cupti         ${WHEEL_SUBDIR}  lib,include no
+            nvrtc     nvidia_cuda_nvrtc         ${WHEEL_SUBDIR}  lib,include no
+            cufft     nvidia_cufft              ${WHEEL_SUBDIR}  lib,include no
+            cusolver  nvidia_cusolver           ${WHEEL_SUBDIR}  lib,include no
+            cusparse  nvidia_cusparse           ${WHEEL_SUBDIR}  lib,include no
+            nvjitlink nvidia_nvjitlink          ${WHEEL_SUBDIR}  lib,include no
+            nvcc      nvidia_cuda_nvcc          ${WHEEL_SUBDIR}  bin,include no
+            "
+            CUDNN_PKG="nvidia_cudnn_cu${CUDA_MAJOR}"
+            NCCL_PKG="nvidia_nccl_cu${CUDA_MAJOR}"
+            NVSHMEM_PKG="nvidia_nvshmem_cu${CUDA_MAJOR}"
+            CUDNN_SUBDIR="${WHEEL_SUBDIR}"
+            NCCL_SUBDIR="${WHEEL_SUBDIR}"
+            NVSHMEM_SUBDIR="${WHEEL_SUBDIR}"
+          fi
 
           # Extract pinned versions from cuda-toolkit metadata
-          grep -o '"nvidia[a-z_-]*-cu12==[0-9.]*\.\*' /tmp/toolkit.json \
+          # Matches both nvidia-foo-cu12==ver.* and nvidia-foo==ver.*
+          grep -o '"nvidia[a-z_-]*==[0-9.]*\.\*' /tmp/toolkit.json \
             | sed 's/"//g; s/\.\*$//' \
             | sed 's/-/_/g' \
-            | sed 's/==/=/' > /tmp/versions.txt
+            | sed 's/==/=/' \
+            | sort -u > /tmp/versions.txt
 
           echo "$TOOLKIT_COMPONENTS" | while read -r comp pkg subdir extract linux_only; do
             [ -z "$comp" ] && continue
@@ -94,9 +135,9 @@ jobs:
           done
 
           # Append extra components not in cuda-toolkit (cudnn, nccl, nvshmem)
-          printf 'cudnn\tnvidia_cudnn_cu12\t${{ matrix.cudnn_version }}\tcudnn\tlib,include\tno\n' >> "${PKG}/inst/components.tsv"
-          printf 'nccl\tnvidia_nccl_cu12\t${{ matrix.nccl_version }}\tnccl\tlib,include\tyes\n' >> "${PKG}/inst/components.tsv"
-          printf 'nvshmem\tnvidia_nvshmem_cu12\t${{ matrix.nvshmem_version }}\tnvshmem\tlib,include\tyes\n' >> "${PKG}/inst/components.tsv"
+          printf '%s\t%s\t%s\t%s\t%s\t%s\n' "cudnn" "$CUDNN_PKG" "${{ matrix.cudnn_version }}" "$CUDNN_SUBDIR" "lib,include" "no" >> "${PKG}/inst/components.tsv"
+          printf '%s\t%s\t%s\t%s\t%s\t%s\n' "nccl" "$NCCL_PKG" "${{ matrix.nccl_version }}" "$NCCL_SUBDIR" "lib,include" "yes" >> "${PKG}/inst/components.tsv"
+          printf '%s\t%s\t%s\t%s\t%s\t%s\n' "nvshmem" "$NVSHMEM_PKG" "${{ matrix.nvshmem_version }}" "$NVSHMEM_SUBDIR" "lib,include" "yes" >> "${PKG}/inst/components.tsv"
 
           echo "Pinned components:"
           cat "${PKG}/inst/components.tsv"

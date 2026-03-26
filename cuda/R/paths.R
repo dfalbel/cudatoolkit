@@ -1,18 +1,24 @@
-# Component name -> wheel subdirectory mapping
-.component_subdir <- c(
-  runtime = "cuda_runtime",
-  cublas = "cublas",
-  cudnn = "cudnn",
-  cupti = "cuda_cupti",
-  nvrtc = "cuda_nvrtc",
-  cufft = "cufft",
-  cusolver = "cusolver",
-  cusparse = "cusparse",
-  nvjitlink = "nvjitlink",
-  nccl = "nccl",
-  nvshmem = "nvshmem",
-  nvcc = "cuda_nvcc"
-)
+# Read component -> wheel_subdir mapping from installed components.tsv
+.read_components <- function() {
+  tsv <- system.file("components.tsv", package = packageName(), mustWork = TRUE)
+  df <- read.delim(tsv, stringsAsFactors = FALSE)
+  setNames(df$wheel_subdir, df$component)
+}
+
+# Lazily cached component map
+.component_subdir_env <- new.env(parent = emptyenv())
+
+.component_subdir <- function(component) {
+  if (is.null(.component_subdir_env$map)) {
+    .component_subdir_env$map <- .read_components()
+  }
+  subdir <- .component_subdir_env$map[[component]]
+  if (is.null(subdir)) {
+    stop(sprintf("Unknown component: '%s'. Available: %s",
+                 component, paste(names(.component_subdir_env$map), collapse = ", ")))
+  }
+  subdir
+}
 
 #' Path to a CUDA component installation
 #'
@@ -20,13 +26,8 @@
 #' @return A character string with the path to the installed component files.
 #' @export
 cuda_path <- function(component) {
-  subdir <- .component_subdir[[component]]
-  if (is.null(subdir)) {
-    stop(sprintf("Unknown component: '%s'. Available: %s",
-                 component, paste(names(.component_subdir), collapse = ", ")))
-  }
-  system.file(file.path("nvidia", subdir), package = packageName(),
-              mustWork = TRUE)
+  system.file(file.path("nvidia", .component_subdir(component)),
+              package = packageName(), mustWork = TRUE)
 }
 
 #' Path to a CUDA component's shared libraries
@@ -58,16 +59,20 @@ bin_path <- function(component) {
 
 #' List all library paths for all installed components
 #'
-#' Returns a character vector of all lib directories. Useful for setting
+#' Returns a character vector of unique lib directories. Useful for setting
 #' LD_LIBRARY_PATH or registering with ldconfig.
 #'
 #' @return A character vector of library paths.
 #' @export
 all_lib_paths <- function() {
+  if (is.null(.component_subdir_env$map)) {
+    .component_subdir_env$map <- .read_components()
+  }
   pkg <- packageName()
-  paths <- vapply(.component_subdir, function(subdir) {
+  subdirs <- unique(.component_subdir_env$map)
+  paths <- vapply(subdirs, function(subdir) {
     p <- system.file(file.path("nvidia", subdir, "lib"), package = pkg)
     if (nzchar(p)) p else NA_character_
   }, character(1))
-  paths[!is.na(paths)]
+  unique(paths[!is.na(paths)])
 }
