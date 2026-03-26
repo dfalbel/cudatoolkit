@@ -5,8 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Source-only tarballs. Libraries are downloaded from PyPI at install time
-# by the configure script.
+# Source-only tarballs generated from the cuda/ template.
+# Libraries are downloaded from PyPI at install time by the configure script.
 
 jobs:
   build:
@@ -16,54 +16,83 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [cuda12.6, cuda12.8]
+        include:
+          - cuda_minor: "12.6"
+            toolkit_version: "12.6.3"
+            pkg_version: "1.0.0"
+            cudnn_version: "9.5.0.50"
+            nccl_version: "2.23.4"
+            nvshmem_version: "3.1.7"
+          - cuda_minor: "12.8"
+            toolkit_version: "12.8.1"
+            pkg_version: "1.0.0"
+            cudnn_version: "9.8.0.87"
+            nccl_version: "2.26.5"
+            nvshmem_version: "3.4.5"
     steps:
       - uses: actions/checkout@v4
 
       - uses: r-lib/actions/setup-r@v2
 
-      - name: Get package version
-        id: parse
-        run: |
-          version=$(grep "^Version:" ${{ matrix.package }}/DESCRIPTION | sed 's/Version:[[:space:]]*//')
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Check if release asset already exists
+      - name: Check if release already exists
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ matrix.package }}-${{ steps.parse.outputs.version }}"
-          ASSET="${{ matrix.package }}_${{ steps.parse.outputs.version }}.tar.gz"
+          TAG="cuda${{ matrix.cuda_minor }}-${{ matrix.pkg_version }}"
+          ASSET="cuda${{ matrix.cuda_minor }}_${{ matrix.pkg_version }}.tar.gz"
           if gh release view "$TAG" --json assets --jq ".assets[].name" 2>/dev/null | grep -q "^${ASSET}$"; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Generate package from template
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          PKG="cuda${{ matrix.cuda_minor }}"
+          cp -r cuda "$PKG"
+
+          # Generate DESCRIPTION from template
+          sed -e 's/{{CUDA_MINOR}}/${{ matrix.cuda_minor }}/g' \
+              -e 's/{{PKG_VERSION}}/${{ matrix.pkg_version }}/g' \
+              cuda/DESCRIPTION.template > "${PKG}/DESCRIPTION"
+          rm "${PKG}/DESCRIPTION.template"
+
+          # Write toolkit version
+          echo "${{ matrix.toolkit_version }}" > "${PKG}/inst/cuda-toolkit-version"
+
+          # Write extra components (cudnn, nccl, nvshmem)
+          printf 'component\tpypi_package\tversion\twheel_subdir\textract\tlinux_only\n' > "${PKG}/inst/extra-components.tsv"
+          printf 'cudnn\tnvidia_cudnn_cu12\t${{ matrix.cudnn_version }}\tcudnn\tlib,include\tno\n' >> "${PKG}/inst/extra-components.tsv"
+          printf 'nccl\tnvidia_nccl_cu12\t${{ matrix.nccl_version }}\tnccl\tlib,include\tyes\n' >> "${PKG}/inst/extra-components.tsv"
+          printf 'nvshmem\tnvidia_nvshmem_cu12\t${{ matrix.nvshmem_version }}\tnvshmem\tlib,include\tyes\n' >> "${PKG}/inst/extra-components.tsv"
+
       - name: Build source tarball
         if: steps.check.outputs.exists == 'false'
-        run: R CMD build ${{ matrix.package }} --no-build-vignettes
+        run: |
+          PKG="cuda${{ matrix.cuda_minor }}"
+          R CMD build "$PKG" --no-build-vignettes
 
       - name: Upload to GitHub Release
         if: steps.check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PKG="${{ matrix.package }}"
-          VER="${{ steps.parse.outputs.version }}"
+          PKG="cuda${{ matrix.cuda_minor }}"
+          VER="${{ matrix.pkg_version }}"
           TAG="${PKG}-${VER}"
           ASSET="${PKG}_${VER}.tar.gz"
           gh release create "$TAG" \
             --title "${PKG} ${VER}" \
-            --notes "${PKG} ${VER} — CUDA toolkit libraries for R. Libraries are downloaded from PyPI during installation." \
+            --notes "${PKG} ${VER} — CUDA ${{ matrix.cuda_minor }} toolkit libraries for R (toolkit ${{ matrix.toolkit_version }}). Libraries are downloaded from PyPI during installation." \
             2>/dev/null || true
           gh release upload "$TAG" "$ASSET" --clobber
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.package }}-${{ steps.parse.outputs.version }}
-          path: "${{ matrix.package }}_${{ steps.parse.outputs.version }}.tar.gz"
+          name: cuda${{ matrix.cuda_minor }}-${{ matrix.pkg_version }}
+          path: "cuda${{ matrix.cuda_minor }}_${{ matrix.pkg_version }}.tar.gz"
 
   update-repo-index:
     needs: build

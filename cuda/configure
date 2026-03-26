@@ -6,8 +6,8 @@
 # The CUDA toolkit version to install. Read from inst/cuda-toolkit-version.
 TOOLKIT_VERSION=$(cat inst/cuda-toolkit-version)
 
-# Components we want to install. Each line: component_name pypi_package wheel_subdir extract_dirs [linux_only]
-# Components NOT in cuda-toolkit (cudnn, nccl, nvshmem) have versions in inst/extra-components.tsv.
+# Components we want to install from the cuda-toolkit meta-package.
+# Format: component_name pypi_package wheel_subdir extract_dirs
 COMPONENTS="
 runtime   nvidia_cuda_runtime_cu12  cuda_runtime  lib,include
 cublas    nvidia_cublas_cu12        cublas         lib,include
@@ -140,6 +140,9 @@ if [ ! -s "$VERSIONS_FILE" ]; then
   echo "ERROR: Failed to resolve versions from cuda-toolkit ${TOOLKIT_VERSION}" >&2
   exit 1
 fi
+
+echo "  Found $(wc -l < "$VERSIONS_FILE" | tr -d ' ') components."
+echo ""
 
 # Install toolkit components
 echo "$COMPONENTS" | while read -r component pypi_package wheel_subdir extract; do

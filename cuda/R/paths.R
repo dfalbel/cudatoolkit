@@ -23,7 +23,7 @@ cuda_path <- function(component) {
   subdir <- .component_subdir[[component]]
   if (is.null(subdir)) {
     stop(sprintf("Unknown component: '%s'. Available: %s",
-                 component, paste(.component_subdir, collapse = ", ")))
+                 component, paste(names(.component_subdir), collapse = ", ")))
   }
   system.file(file.path("nvidia", subdir), package = packageName(),
               mustWork = TRUE)
