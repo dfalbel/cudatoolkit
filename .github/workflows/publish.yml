@@ -165,6 +165,15 @@ jobs:
             2>/dev/null || true
           gh release upload "$TAG" "$ASSET" --clobber
 
+      - name: Download existing release asset
+        if: steps.check.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="cuda${{ matrix.cuda_minor }}-${{ matrix.pkg_version }}"
+          ASSET="cuda${{ matrix.cuda_minor }}_${{ matrix.pkg_version }}.tar.gz"
+          gh release download "$TAG" --pattern "$ASSET"
+
       - uses: actions/upload-artifact@v4
         with:
           name: cuda${{ matrix.cuda_minor }}-${{ matrix.pkg_version }}
