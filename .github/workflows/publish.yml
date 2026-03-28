@@ -27,7 +27,7 @@ jobs:
           - cuda_minor: "12.8"
             cuda_major: "12"
             toolkit_version: "12.8.1"
-            pkg_version: "1.0.1"
+            pkg_version: "1.0.2"
             cudnn_version: "9.8.0.87"
             nccl_version: "2.29.7"
             nvshmem_version: "3.4.5"
@@ -88,7 +88,7 @@ jobs:
             cusolver  nvidia_cusolver${PYPI_SUFFIX}       cusolver       lib,include no
             cusparse  nvidia_cusparse${PYPI_SUFFIX}       cusparse       lib,include no
             nvjitlink nvidia_nvjitlink${PYPI_SUFFIX}      nvjitlink      lib,include no
-            nvcc      nvidia_cuda_nvcc${PYPI_SUFFIX}      cuda_nvcc      bin,include no
+            nvcc      nvidia_cuda_nvcc${PYPI_SUFFIX}      cuda_nvcc      bin,include,nvvm no
             "
             CUDNN_PKG="nvidia_cudnn${PYPI_SUFFIX}"
             NCCL_PKG="nvidia_nccl${PYPI_SUFFIX}"
@@ -108,7 +108,7 @@ jobs:
             cusolver  nvidia_cusolver           ${WHEEL_SUBDIR}  lib,include no
             cusparse  nvidia_cusparse           ${WHEEL_SUBDIR}  lib,include no
             nvjitlink nvidia_nvjitlink          ${WHEEL_SUBDIR}  lib,include no
-            nvcc      nvidia_cuda_nvcc          ${WHEEL_SUBDIR}  bin,include no
+            nvcc      nvidia_cuda_nvcc          ${WHEEL_SUBDIR}  bin,include,nvvm no
             "
             CUDNN_PKG="nvidia_cudnn_cu${CUDA_MAJOR}"
             NCCL_PKG="nvidia_nccl_cu${CUDA_MAJOR}"
